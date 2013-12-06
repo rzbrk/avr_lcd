@@ -1,0 +1,306 @@
+gavrasm Gerd's AVR assembler version 3.3 (C)2012 by DG4FAC
+----------------------------------------------------------
+Source file: lcd_demo.asm
+Hex file:    lcd_demo.hex
+Eeprom file: lcd_demo.eep
+Compiled:    06.12.2013, 23:23:57
+Pass:        2
+     1: ; Some notes on the hardware:
+     2: ; ATmega16 (clock frequency doesn't matter, tested with 1 MHz to 16 MHz)
+     3: ; PortA.1 -> LCD RS (register select)
+     4: ; PortA.2 -> LCD RW (read/write)
+     5: ; PortA.3 -> LCd E (Enable)
+     6: ; PortA.4 ... PortA.7 -> LCD data.4 ... data.7
+     7: ; the other LCD data lines can be left open or tied to ground.
+     8: 
+     9: .include "m161def.inc"
+ -> Warning 009: Include defs not necessary, using internal values!
+   File: lcd_demo.asm, Line: 9
+   Source line: .include "m161def.inc"
+    10: 
+    11: ; Define how the LCD is connected to the microcontroller
+    12: .EQU LCD_PORT=PORTA
+    13: .EQU LCD_DDR=DDRA
+    14: .EQU LCD_PIN=PinA
+    15: .EQU LCD_RS	= 1
+    16: .EQU LCD_RW	= 2
+    17: .EQU LCD_E	= 3
+    18: 
+    19: .EQU CURSOR	= 0
+    20: .EQU BLINK	= 0
+    21: 
+    22: .def temp	= r16
+    23: .def arg    = r17			; argument for calling subroutines
+    24: .def return	= r18			; return value from subroutines
+    25: .CSEG
+    26: 
+    27: 000000   C0B3  rjmp reset
+    28: .ORG $10
+    29: 
+    30: ; include LCD routines
+    31: .include "./lcd.inc"
+  Including file ./lcd.inc
+     1: lcd_command8:				; used for init (we need some 8-bit commands to switch to 4-bit mode!)
+     2: 000010   930F  push temp				; prepare temporary variable
+     3: 000011   B30A  in	temp, LCD_DDR		; we need to set the high nibble of LCD_DDR while leaving
+     4: 							; the other bits untouched. Using temp for that.
+     5: 000012   6F00  sbr	temp, 0b11110000	; set high nibble in temp
+     6: 000013   BB0A  out	LCD_DDR, temp		; write value to LCD_DDR again
+     7: 000014   B30B  in	temp, LCD_PORT		; then get the port value
+     8: 000015   700F  cbr	temp, 0b11110000	; and clear the data bits
+     9: 000016   7F10  cbr	arg, 0b00001111		; then clear the low nibble of the argument
+    10: 							; so that no control line bits are overwritten
+    11: 000017   2B01  or	temp, arg			; then set the data bits (from the argument) in the
+    12: 							; port value
+    13: 000018   BB0B  out	LCD_PORT, temp		; and write the port value.
+    14: 000019   9ADB  sbi	LCD_PORT, LCD_E		; now strobe LCD_E
+    15: 00001A   0000  nop
+    16: 00001B   0000  nop
+    17: 00001C   0000  nop
+    18: 00001D   98DB  cbi	LCD_PORT, LCD_E
+    19: 00001E   B30A  in	temp, LCD_DDR		; get LCD_DDR to make the data lines input again
+    20: 00001F   700F  cbr	temp, 0b11110000	; clear data line direction bits
+    21: 000020   BB0A  out	LCD_DDR, temp		; and write to LCD_DDR
+    22: 000021   910F  pop	temp
+    23: 000022   9508  ret
+    24: 
+    25: lcd_putchar:
+    26: 000023   930F  push temp				; prepare temporary variable
+    27: 000024   931F  push arg				; save the argmuent (it's destroyed in between)
+    28: 000025   B30A  in temp, LCD_DDR		; get data direction bits
+    29: 000026   6F00  sbr	temp, 0b11110000	; set the data lines to output
+    30: 000027   BB0A  out	LCD_DDR, temp		; write value to LCD_DDR
+    31: 000028   B30B  in temp, LCD_PORT		; then get the data from LCD_PORT
+    32: 000029   7001  cbr temp, 0b11111110	; clear ALL LCD lines (data and control!)
+    33: 00002A   7F10  cbr arg, 0b00001111		; we have to write the high nibble of our argument first
+    34: 							; so mask off the low nibble
+    35: 00002B   2B01  or temp, arg			; now set the argument bits in the port value
+    36: 00002C   BB0B  out	LCD_PORT, temp		; and write the port value
+    37: 00002D   9AD9  sbi	LCD_PORT, LCD_RS	; now take RS high for LCD char data register access
+    38: 00002E   9ADB  sbi	LCD_PORT, LCD_E		; strobe LCD_E
+    39: 00002F   0000  nop
+    40: 000030   0000  nop
+    41: 000031   0000  nop
+    42: 000032   98DB  cbi	LCD_PORT, LCD_E
+    43: 000033   911F  pop arg					; restore the argument, we need the low nibble now...
+    44: 000034   700F  cbr temp, 0b11110000	; clear the data bits of our port value
+    45: 000035   9512  swap arg				; we want to write the LOW nibble of the argument to
+    46: 							; the LCD data lines, which are the HIGH port nibble!
+    47: 000036   7F10  cbr	arg, 0b00001111		; clear unused bits in argument
+    48: 000037   2B01  or temp, arg			; and set the required argument bits in the port value
+    49: 000038   BB0B  out	LCD_PORT, temp		; write data to port
+    50: 000039   9AD9  sbi	LCD_PORT, LCD_RS	; again, set RS
+    51: 00003A   9ADB  sbi	LCD_PORT, LCD_E		; strobe LCD_E
+    52: 00003B   0000  nop
+    53: 00003C   0000  nop
+    54: 00003D   0000  nop
+    55: 00003E   98DB  cbi	LCD_PORT, LCD_E
+    56: 00003F   98D9  cbi	LCD_PORT, LCD_RS
+    57: 000040   B30A  in temp, LCD_DDR
+    58: 000041   700F  cbr	temp, 0b11110000	; data lines are input again
+    59: 000042   BB0A  out	LCD_DDR, temp
+    60: 000043   910F  pop	temp
+    61: 000044   9508  ret
+    62: 
+    63: lcd_command:				; same as LCD_putchar, but with RS low!
+    64: 000045   930F  push temp				; prepare temporary variable
+    65: 000046   931F  push arg
+    66: 000047   B30A  in temp, LCD_DDR
+    67: 000048   6F00  sbr temp, 0b11110000
+    68: 000049   BB0A  out	LCD_DDR, temp
+    69: 00004A   B30B  in temp, LCD_PORT
+    70: 00004B   7001  cbr temp, 0b11111110
+    71: 00004C   7F10  cbr arg, 0b00001111
+    72: 00004D   2B01  or temp, arg
+    73: 
+    74: 00004E   BB0B  out	LCD_PORT, temp
+    75: 00004F   9ADB  sbi	LCD_PORT, LCD_E
+    76: 000050   0000  nop
+    77: 000051   0000  nop
+    78: 000052   0000  nop
+    79: 000053   98DB  cbi	LCD_PORT, LCD_E
+    80: 000054   911F  pop arg
+    81: 000055   700F  cbr	temp, 0b11110000
+    82: 000056   9512  swap arg
+    83: 000057   7F10  cbr	arg, 0b00001111
+    84: 000058   2B01  or temp, arg
+    85: 000059   BB0B  out	LCD_PORT, temp
+    86: 00005A   9ADB  sbi	LCD_PORT, LCD_E
+    87: 00005B   0000  nop
+    88: 00005C   0000  nop
+    89: 00005D   0000  nop
+    90: 00005E   98DB  cbi	LCD_PORT, LCD_E
+    91: 00005F   B30A  in temp, LCD_DDR
+    92: 000060   700F  cbr	temp, 0b11110000
+    93: 000061   BB0A  out	LCD_DDR, temp
+    94: 000062   910F  pop	temp
+    95: 000063   9508  ret
+    96: 
+    97: LCD_getchar:
+    98: 000064   930F  push temp				; prepare temporary variable
+    99: 000065   B30A  in temp, LCD_DDR		; make sure the data lines are inputs
+   100: 000066   700F  andi temp, 0b00001111	; so clear their DDR bits
+   101: 000067   BB0A  out	LCD_DDR, temp
+   102: 000068   9AD9  sbi	LCD_PORT, LCD_RS	; we want to access the char data register, so RS high
+   103: 000069   9ADA  sbi	LCD_PORT, LCD_RW	; we also want to read from the LCD -> RW high
+   104: 00006A   9ADB  sbi	LCD_PORT, LCD_E		; while E is high
+   105: 00006B   0000  nop
+   106: 00006C   B309  in temp, LCD_PIN		; we need to fetch the HIGH nibble
+   107: 00006D   7F00  andi temp, 0b11110000	; mask off the control line data
+   108: 00006E   2F20  mov	return, temp		; and copy the HIGH nibble to return
+   109: 00006F   98DB  cbi	LCD_PORT, LCD_E		; now take E low again
+   110: 000070   0000  nop						; wait a bit before strobing E again
+   111: 000071   0000  nop	
+   112: 000072   9ADB  sbi	LCD_PORT, LCD_E		; same as above, now we're reading the low nibble
+   113: 000073   0000  nop
+   114: 000074   B309  in temp, LCD_PIN		; get the data
+   115: 000075   7F00  andi temp, 0b11110000	; and again mask off the control line bits
+   116: 000076   9502  swap temp				; temp HIGH nibble contains data LOW nibble! so swap
+   117: 000077   2B20  or return, temp			; and combine with previously read high nibble
+   118: 000078   98DB  cbi	LCD_PORT, LCD_E		; take all control lines low again
+   119: 000079   98D9  cbi	LCD_PORT, LCD_RS
+   120: 00007A   98DA  cbi	LCD_PORT, LCD_RW
+   121: 00007B   910F  pop	temp
+   122: 00007C   9508  ret							; the character read from the LCD is now in return
+   123: 
+   124: LCD_getaddr:				; works just like LCD_getchar, but with RS low,
+   125: 							; return.7 is the busy flag
+   126: 00007D   930F  push temp				; prepare temporary variable
+   127: 00007E   B30A  in temp, LCD_DDR
+   128: 00007F   700F  andi temp, 0b00001111
+   129: 000080   BB0A  out	LCD_DDR, temp
+   130: 000081   98D9  cbi	LCD_PORT, LCD_RS
+   131: 000082   9ADA  sbi	LCD_PORT, LCD_RW
+   132: 000083   9ADB  sbi	LCD_PORT, LCD_E
+   133: 000084   0000  nop
+   134: 000085   B309  in temp, LCD_PIN
+   135: 000086   7F00  andi temp, 0b11110000
+   136: 000087   2F20  mov	return, temp
+   137: 000088   98DB  cbi	LCD_PORT, LCD_E
+   138: 000089   0000  nop
+   139: 00008A   0000  nop
+   140: 00008B   9ADB  sbi	LCD_PORT, LCD_E
+   141: 00008C   0000  nop
+   142: 00008D   B309  in temp, LCD_PIN
+   143: 00008E   7F00  andi temp, 0b11110000
+   144: 00008F   9502  swap temp
+   145: 000090   2B20  or return, temp
+   146: 000091   98DB  cbi	LCD_PORT, LCD_E
+   147: 000092   98DA  cbi	LCD_PORT, LCD_RW
+   148: 000093   910F  pop	temp
+   149: 000094   9508  ret
+   150: 
+   151: LCD_wait:					; read address and busy flag until busy flag cleared
+   152: 000095   DFE7  rcall LCD_getaddr
+   153: 000096   7820  andi return, 0x80
+   154: 000097   F7E9  brne LCD_wait
+   155: 000098   9508  ret
+   156: 
+   157: LCD_delay:
+   158: 000099   2422  clr	r2
+   159: 	LCD_delay_outer:
+   160: 00009A   2433  clr	r3
+   161: 	LCD_delay_inner:
+   162: 00009B   943A  dec	r3
+   163: 00009C   F7F1  brne LCD_delay_inner
+   164: 00009D   942A  dec	r2
+   165: 00009E   F7D9  brne LCD_delay_outer
+   166: 00009F   9508  ret
+   167: 
+   168: LCD_init:					; Initialize LCD
+   169: 0000A0   930F  push	temp			; prepare temporary variable
+   170: 							;control lines are output, rest is input
+   171: 0000A1   E00E  ldi	temp, (1<<LCD_RS)|(1<<LCD_RW)|(1<<LCD_E)	
+   172: 0000A2   BB0A  out	LCD_DDR, temp
+   173: 	
+   174: 0000A3   DFF5  rcall	LCD_delay		; first, we'll tell the LCD that we want to use it
+   175: 0000A4   E018  ldi	arg, (1<<LCD_E)		; in 4-bit mode.
+   176: 0000A5   DF6A  rcall LCD_command8		; LCD is still in 8-BIT MODE while writing this command!!!
+   177: 0000A6   DFEE  rcall LCD_wait
+   178: 
+   179: 0000A7   E218  ldi	arg, 0x28			; NOW: 2 lines, 5*7 font, 4-BIT MODE!
+   180: 0000A8   DF9C  rcall LCD_command
+   181: 0000A9   DFEB  rcall LCD_wait
+   182: 
+   183: 0000AA   E01C  ldi arg, (1<<3)|(1<<2)|(CURSOR<<1)|(BLINK<<0)
+   184: 0000AB   DF99  rcall LCD_command
+   185: 0000AC   DFE8  rcall LCD_wait
+   186: 
+   187: 0000AD   E016  ldi	arg, 0x06			; auto-inc cursor
+   188: 0000AE   DF96  rcall LCD_command
+   189: 
+   190: 0000AF   E011  ldi	arg, 0x01			; clear display, cursor -> home
+   191: 0000B0   DF94  rcall LCD_command
+   192: 0000B1   DFE3  rcall LCD_wait
+   193: 
+   194: 0000B2   910F  pop temp
+   195: 0000B3   9508  ret
+   196: 
+   197: .MACRO LCD_print
+   198: 	push ZL					; save ZL
+   199: 	push ZH					; save ZH
+   200: 	
+   201: 	ldi ZL, LOW(@0*2)		; Z <= Address from byte array '@0'
+   202: 	ldi ZH, HIGH(@0*2)
+   203: 
+   204: print:						; loop over elements in byte array
+   205: 	lpm	arg, Z				; read byte from byte array
+   206: 	tst arg					; arg == 0 (end mark)?
+   207: 	breq endprnt			; end mark    => jump to endprnt:
+   208: 	rcall LCD_putchar		; no end mark => send char to LCD
+   209: 	rcall LCD_wait
+   210: 	adiw ZL, 1				; Increment array address
+   211: 	rjmp print
+   212: endprnt:
+   213: 
+   214: 	pop ZH					; restore ZH
+   215: 	pop ZL					; restore ZL
+   216: .ENDM
+  Continuing file lcd_demo.asm
+    32: 
+    33: reset:
+    34: 0000B4   E50F  ldi	temp, low(RAMEND)
+    35: 0000B5   BF0D  out	SPL, temp
+    36: 0000B6   E004  ldi	temp, high(RAMEND)
+    37: 0000B7   BF0E  out	SPH, temp
+    38: 
+    39: 0000B8   DFE7  rcall LCD_init
+    40: 0000B9   DFDB  rcall LCD_wait
+    41: 
+    42: 	LCD_print z1
+    43: 	LCD_print z3
+    44: 	LCD_print z2
+    45: 	LCD_print z4
+    46: 
+    47: loop:						; Main loop
+    48: 0000EE   CFFF  rjmp loop
+    49: 
+    50: ; Define some constants
+    51: ;            12345678901234567890
+    52: z1:	.DB		"*** Erste  Zeile ***",0,0	; byte const + ctr + lf + zero mark
+        0000EF 2A2A 202A 7245 7473
+        0000F3 2065 5A20 6965 656C
+        0000F7 2A20 2A2A 0000
+    53: z2: .DB		"*** Zweite Zeile ***",0,0
+        0000FA 2A2A 202A 775A 6965
+        0000FE 6574 5A20 6965 656C
+        000102 2A20 2A2A 0000
+    54: z3: .DB		"*** Dritte Zeile ***",0,0
+        000105 2A2A 202A 7244 7469
+        000109 6574 5A20 6965 656C
+        00010D 2A20 2A2A 0000
+    55: z4: .DB		"*** Vierte Zeile ***",0,0
+        000110 2A2A 202A 6956 7265
+        000114 6574 5A20 6965 656C
+        000118 2A20 2A2A 0000
+    56: 
+    57: .EXIT
+ -> Warning 001: 1 symbol(s) defined, but not used!
+
+Program             :      224 words.
+Constants           :       44 words.
+Total program memory:      268 words.
+Eeprom space        :        0 bytes.
+Data segment        :        0 bytes.
+Compilation completed, no errors.
+Compilation endet 06.12.2013, 23:23:57
